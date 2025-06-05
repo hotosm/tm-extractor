@@ -52,4 +52,4 @@ jobs:
         env:
           RAW_DATA_API_BASE_URL: ${{ github.event.inputs.raw_data_api_url || 'https://api-prod.raw-data.hotosm.org/v1' }}
           RAWDATA_API_AUTH_TOKEN: ${{ github.event.inputs.raw_data_api_auth_token || secrets.RAWDATA_API_AUTH_TOKEN }}
-          TASKING_MANAGER_API_KEY: ${{ github.event.inputs.tasking_manager_api_key || 'None' }}
+          # TASKING_MANAGER_API_KEY: ${{ github.event.inputs.tasking_manager_api_key || 'None' }}
