@@ -1,0 +1,11 @@
+[Unit]
+Description=Run TM Extractor daily
+Documentation=https://github.com/hotosm/TM-Extractor
+
+[Timer]
+OnCalendar=daily
+Persistent=true
+Unit=tm-extractor.service
+
+[Install]
+WantedBy=timers.target

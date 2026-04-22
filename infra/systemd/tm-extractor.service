@@ -1,0 +1,22 @@
+[Unit]
+Description=TM Extractor daily run
+Documentation=https://github.com/hotosm/TM-Extractor
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+EnvironmentFile=/etc/tm-extractor/.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/root/.local/bin
+ExecStart=/usr/bin/env uvx tm-extractor --fetch-active-projects 24
+
+# Hardening (uncomment and tune for non-root deploys)
+# User=tm-extractor
+# Group=tm-extractor
+# NoNewPrivileges=true
+# ProtectSystem=strict
+# ProtectHome=true
+# PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target
