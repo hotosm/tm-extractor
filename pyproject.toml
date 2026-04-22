@@ -1,7 +1,7 @@
 [project]
 name = "tm-extractor"
 version = "0.3.0"
-description = "Trigger OSM data extractions for HOT Tasking Manager projects via the Raw Data API"
+description = "Trigger OSM data extractions for HOT Tasking Manager projects via the Raw Data API "
 readme = "README.md"
 requires-python = ">=3.10"
 license = { text = "GPL-3.0-or-later" }
