@@ -62,6 +62,7 @@ dev = [
     "ruff>=0.8",
     "ty>=0.0.1a1",
     "sentry-sdk>=2.0",
+    "pytest>=8.0",
 ]
 
 [tool.commitizen]
@@ -69,8 +70,11 @@ name = "cz_conventional_commits"
 tag_format = "v$version"
 version_provider = "pep621"
 update_changelog_on_bump = true
-major_version_zero = true
 changelog_incremental = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra -q"
 
 [tool.ruff]
 line-length = 100
