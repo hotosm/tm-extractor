@@ -14,18 +14,19 @@ jobs:
   Run-Manual-TM-Projects-Report:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install project
+        run: uv sync --no-group dev
 
       - name: Fetch specified projects
-        run: python tm_extractor.py --projects ${{ github.event.inputs.project_ids }}
+        run: uv run tm-extractor --projects ${{ github.event.inputs.project_ids }}
         env:
           RAWDATA_API_AUTH_TOKEN: ${{ secrets.RAWDATA_API_AUTH_TOKEN }}
           TASKING_MANAGER_API_KEY: ${{ secrets.TASKING_MANAGER_API_KEY }}

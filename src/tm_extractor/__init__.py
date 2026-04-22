@@ -4,8 +4,8 @@ import copy
 import json
 import logging
 import os
+from importlib.resources import files
 from pathlib import Path
-from typing import Dict
 
 import aiohttp
 from dotenv import load_dotenv
@@ -21,9 +21,15 @@ logger = logging.getLogger("tm-extractor")
 
 sentry_dsn = os.environ.get("SENTRY_DSN")
 if sentry_dsn:
-    import sentry_sdk
+    try:
+        import sentry_sdk
 
-    sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=0.1)
+        sentry_sdk.init(dsn=sentry_dsn, traces_sample_rate=0.1)
+    except ImportError:
+        logger.warning(
+            "SENTRY_DSN is set but sentry-sdk is not installed. "
+            "Install with: pip install tm-extractor[sentry]"
+        )
 
 
 REQUIRED_ENV_VARS = {
@@ -31,7 +37,6 @@ REQUIRED_ENV_VARS = {
 }
 
 DEFAULT_ENV_VARS = {
-    "CONFIG_JSON": "config.json",
     "RAW_DATA_API_BASE_URL": "https://api-prod.raw-data.hotosm.org/v1",
     "TM_API_BASE_URL": "https://tasking-manager-production-api.hotosm.org/api/v2",
     "API_MAX_RETRIES": "3",
@@ -61,7 +66,24 @@ class ConfigError(Exception):
     pass
 
 
-def validate_environment() -> Dict[str, str]:
+def load_packaged_config() -> dict:
+    """Load the default config.json bundled with the installed package."""
+    try:
+        return json.loads(files("tm_extractor").joinpath("config.json").read_text(encoding="utf-8"))
+    except (ModuleNotFoundError, FileNotFoundError) as exc:
+        raise ConfigError("Packaged default config.json not found") from exc
+
+
+def resolve_config(config_path: str | None) -> str | dict:
+    """Return an explicit config path if it exists, else the packaged default dict."""
+    if config_path:
+        if os.path.exists(config_path):
+            return config_path
+        raise ConfigError(f"Config file not found: {config_path}")
+    return load_packaged_config()
+
+
+def validate_environment() -> dict[str, str]:
     """
     Validate environment variables and return them in a dictionary.
     Raises EnvVarError if required variables are missing.
@@ -80,16 +102,12 @@ def validate_environment() -> Dict[str, str]:
         env_vars[var] = os.environ.get(var, default)
 
     if not os.environ.get("TASKING_MANAGER_API_KEY"):
-        logger.warning(
-            "TASKING_MANAGER_API_KEY not set. Private projects may not be accessible."
-        )
+        logger.warning("TASKING_MANAGER_API_KEY not set. Private projects may not be accessible.")
     else:
         env_vars["TASKING_MANAGER_API_KEY"] = os.environ.get("TASKING_MANAGER_API_KEY")
 
     if missing_vars:
-        raise EnvVarError(
-            f"Missing required environment variables: {', '.join(missing_vars)}"
-        )
+        raise EnvVarError(f"Missing required environment variables: {', '.join(missing_vars)}")
 
     for var in [
         "API_MAX_RETRIES",
@@ -100,10 +118,10 @@ def validate_environment() -> Dict[str, str]:
         "TASK_POLL_INTERVAL",
     ]:
         try:
-            env_vars[var] = int(env_vars[var])
+            int(env_vars[var])
         except ValueError:
             logger.warning(f"Invalid value for {var}, using default")
-            env_vars[var] = int(DEFAULT_ENV_VARS[var])
+            env_vars[var] = DEFAULT_ENV_VARS[var]
 
     return env_vars
 
@@ -128,10 +146,10 @@ class ProjectProcessor:
             try:
                 with open(config_json) as f:
                     self.config = json.load(f)
-            except json.JSONDecodeError:
-                raise ValueError(f"Invalid JSON format in {config_json}")
-            except IOError as e:
-                raise ValueError(f"Error reading config file: {e}")
+            except json.JSONDecodeError as exc:
+                raise ValueError(f"Invalid JSON format in {config_json}") from exc
+            except OSError as exc:
+                raise ValueError(f"Error reading config file: {exc}") from exc
         else:
             raise ValueError("Invalid value for config_json")
 
@@ -142,12 +160,12 @@ class ProjectProcessor:
         self.RAWDATA_API_AUTH_TOKEN = self.env["RAWDATA_API_AUTH_TOKEN"]
         self.TASKING_MANAGER_API_KEY = self.env.get("TASKING_MANAGER_API_KEY")
 
-        self.max_retries = self.env["API_MAX_RETRIES"]
-        self.api_timeout = self.env["API_TIMEOUT"]
-        self.rate_limit_wait = self.env["RATE_LIMIT_WAIT"]
-        self.tm_api_timeout = self.env["TM_API_TIMEOUT"]
-        self.backoff_base = self.env["API_BACKOFF_BASE"]
-        self.task_poll_interval = self.env["TASK_POLL_INTERVAL"]
+        self.max_retries = int(self.env["API_MAX_RETRIES"])
+        self.api_timeout = int(self.env["API_TIMEOUT"])
+        self.rate_limit_wait = int(self.env["RATE_LIMIT_WAIT"])
+        self.tm_api_timeout = int(self.env["TM_API_TIMEOUT"])
+        self.backoff_base = int(self.env["API_BACKOFF_BASE"])
+        self.task_poll_interval = int(self.env["TASK_POLL_INTERVAL"])
 
     def get_mapping_list(self, input_value):
         """Convert input mapping type to standardized format."""
@@ -169,16 +187,10 @@ class ProjectProcessor:
         categories_list = config_temp.get("categories", [])
 
         def extract_values(categories_list, key):
-            return next(
-                (category[key] for category in categories_list if key in category), None
-            )
+            return next((category[key] for category in categories_list if key in category), None)
 
-        extracted_values = {
-            key: extract_values(categories_list, key) for key in set(mapping_types)
-        }
-        modified_categories = [
-            {key: value} for key, value in extracted_values.items() if value
-        ]
+        extracted_values = {key: extract_values(categories_list, key) for key in set(mapping_types)}
+        modified_categories = [{key: value} for key, value in extracted_values.items() if value]
 
         config_temp.update({"categories": modified_categories, "geometry": geometry})
 
@@ -267,10 +279,7 @@ class ProjectProcessor:
             try:
                 async with aiohttp.ClientSession() as session:
                     headers = {}
-                    if (
-                        url.startswith(self.TM_API_BASE_URL)
-                        and self.TASKING_MANAGER_API_KEY
-                    ):
+                    if url.startswith(self.TM_API_BASE_URL) and self.TASKING_MANAGER_API_KEY:
                         headers["Authorization"] = self.TASKING_MANAGER_API_KEY
 
                     async with session.get(
@@ -327,9 +336,7 @@ class ProjectProcessor:
 
                         response = await self.retry_get_request(status_url)
                         if response.get("status") in ["SUCCESS", "ERROR", "FAILURE"]:
-                            results[task_id] = response.get(
-                                "result", "No result available"
-                            )
+                            results[task_id] = response.get("result", "No result available")
                             pbar.update(1)
                             completed_tasks += 1
                             logger.info(
@@ -338,27 +345,25 @@ class ProjectProcessor:
                             )
                             break
                 else:
-                    results[task_id] = (
-                        f"FAILURE: {response.get('message', 'Unknown error')}"
-                    )
+                    results[task_id] = f"FAILURE: {response.get('message', 'Unknown error')}"
                     pbar.update(1)
                     completed_tasks += 1
-                    logger.warning(
-                        f"Task {task_id} failed ({completed_tasks}/{total_tasks})"
-                    )
+                    logger.warning(f"Task {task_id} failed ({completed_tasks}/{total_tasks})")
 
         try:
             output_file = Path("result.json")
             with output_file.open("w") as f:
                 json.dump(results, f, indent=2)
             logger.info(f"Results saved to {output_file.absolute()}")
-        except IOError as e:
+        except OSError as e:
             logger.error(f"Failed to write results: {e}")
 
     async def get_project_details(self, project_id):
         """Get project details from Tasking Manager API."""
         feature = {"type": "Feature", "properties": {}}
-        project_api_url = f"{self.TM_API_BASE_URL}/projects/{project_id}/?as_file=false&abbreviated=false"
+        project_api_url = (
+            f"{self.TM_API_BASE_URL}/projects/{project_id}/?as_file=false&abbreviated=false"
+        )
 
         for retry in range(self.max_retries):
             try:
@@ -366,25 +371,23 @@ class ProjectProcessor:
                 if self.TASKING_MANAGER_API_KEY:
                     headers["Authorization"] = self.TASKING_MANAGER_API_KEY
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
+                async with (
+                    aiohttp.ClientSession() as session,
+                    session.get(
                         project_api_url, headers=headers, timeout=self.tm_api_timeout
-                    ) as response:
-                        response.raise_for_status()
-                        result = await response.json()
+                    ) as response,
+                ):
+                    response.raise_for_status()
+                    result = await response.json()
 
-                        if not all(
-                            key in result for key in ["mappingTypes", "areaOfInterest"]
-                        ):
-                            logger.warning(
-                                f"Missing required fields in project {project_id} response"
-                            )
-                            continue
+                    if not all(key in result for key in ["mappingTypes", "areaOfInterest"]):
+                        logger.warning(f"Missing required fields in project {project_id} response")
+                        continue
 
-                        feature["properties"]["mapping_types"] = result["mappingTypes"]
-                        feature["properties"]["project_id"] = project_id
-                        feature["geometry"] = result["areaOfInterest"]
-                        return feature
+                    feature["properties"]["mapping_types"] = result["mappingTypes"]
+                    feature["properties"]["project_id"] = project_id
+                    feature["geometry"] = result["areaOfInterest"]
+                    return feature
             except aiohttp.ClientResponseError as e:
                 logger.warning(f"API error for project {project_id}: {e.status}")
                 if e.status == 404:
@@ -403,37 +406,35 @@ class ProjectProcessor:
         """Get active projects from Tasking Manager API."""
         for retry in range(self.max_retries):
             try:
-                active_projects_api_url = f"{self.TM_API_BASE_URL}/projects/queries/active/?interval={time_interval}"
+                active_projects_api_url = (
+                    f"{self.TM_API_BASE_URL}/projects/queries/active/?interval={time_interval}"
+                )
                 headers = {"accept": "application/json"}
                 if self.TASKING_MANAGER_API_KEY:
                     headers["Authorization"] = self.TASKING_MANAGER_API_KEY
 
-                async with aiohttp.ClientSession() as session:
-                    async with session.get(
+                async with (
+                    aiohttp.ClientSession() as session,
+                    session.get(
                         active_projects_api_url,
                         headers=headers,
                         timeout=self.api_timeout,
-                    ) as response:
-                        response.raise_for_status()
-                        data = await response.json()
+                    ) as response,
+                ):
+                    response.raise_for_status()
+                    data = await response.json()
 
-                        if "features" not in data:
-                            logger.warning(
-                                "Missing 'features' in active projects response"
-                            )
-                            continue
+                    if "features" not in data:
+                        logger.warning("Missing 'features' in active projects response")
+                        continue
 
-                        return data["features"]
+                    return data["features"]
             except Exception as e:
-                logger.warning(
-                    f"Request failed (attempt {retry + 1}/{self.max_retries}): {e}"
-                )
+                logger.warning(f"Request failed (attempt {retry + 1}/{self.max_retries}): {e}")
 
             await asyncio.sleep(self.backoff_base**retry)
 
-        logger.error(
-            f"Failed to fetch active projects after {self.max_retries} retries"
-        )
+        logger.error(f"Failed to fetch active projects after {self.max_retries} retries")
         return None
 
     async def init_call(self, projects=None, fetch_active_projects=None):
@@ -485,12 +486,12 @@ def lambda_handler(event, context):
 async def async_lambda_handler(event, context):
     """AWS Lambda handler function (async implementation)."""
     try:
-        env = validate_environment()
-        config_json = env["CONFIG_JSON"]
+        validate_environment()
+        config_path = os.environ.get("CONFIG_JSON")
         projects = event.get("projects")
         fetch_active_projects = event.get("fetch_active_projects", 24)
 
-        project_processor = ProjectProcessor(config_json)
+        project_processor = ProjectProcessor(resolve_config(config_path))
         task_ids = await project_processor.init_call(
             projects=projects, fetch_active_projects=fetch_active_projects
         )
@@ -546,8 +547,8 @@ def parse_arguments():
     parser.add_argument(
         "--config",
         "-c",
-        default=os.environ.get("CONFIG_JSON", "config.json"),
-        help="Path to configuration JSON file",
+        default=os.environ.get("CONFIG_JSON"),
+        help="Path to configuration JSON file (defaults to packaged config.json)",
     )
 
     parser.add_argument(
@@ -573,7 +574,7 @@ def main():
 
     try:
         validate_environment()
-        project_processor = ProjectProcessor(os.environ.get("CONFIG_JSON"))
+        project_processor = ProjectProcessor(resolve_config(args.config))
 
         task_ids = asyncio.run(
             project_processor.init_call(

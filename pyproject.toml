@@ -1,11 +1,89 @@
 [project]
 name = "tm-extractor"
-version = "0.1.0"
-description = "Data Exports for Tasking Manager Projects"
+version = "0.2.0"
+description = "Trigger OSM data extractions for HOT Tasking Manager projects via the Raw Data API"
 readme = "README.md"
 requires-python = ">=3.10"
+license = { text = "GPL-3.0-or-later" }
+authors = [
+    { name = "Kshitij Raj Sharma", email = "kshitij.sharma@hotosm.org" },
+]
+keywords = ["osm", "hotosm", "tasking-manager", "raw-data-api", "geospatial"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "Intended Audience :: Science/Research",
+    "License :: OSI Approved :: GNU General Public License v3 or later (GPLv3+)",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Scientific/Engineering :: GIS",
+]
 dependencies = [
     "aiohttp>=3.11.18",
-    "dotenv>=0.9.9",
+    "python-dotenv>=1.0",
     "tqdm>=4.67.1",
 ]
+
+[project.optional-dependencies]
+sentry = ["sentry-sdk>=2.0"]
+
+[project.scripts]
+tm-extractor = "tm_extractor:main"
+
+[project.urls]
+Homepage = "https://github.com/hotosm/TM-Extractor"
+Repository = "https://github.com/hotosm/TM-Extractor"
+Issues = "https://github.com/hotosm/TM-Extractor/issues"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/tm_extractor"]
+
+[tool.hatch.build.targets.sdist]
+include = [
+    "src/tm_extractor",
+    "README.md",
+    "pyproject.toml",
+    "uv.lock",
+]
+
+[dependency-groups]
+dev = [
+    "commitizen>=4.0",
+    "ruff>=0.8",
+    "ty>=0.0.1a1",
+    "sentry-sdk>=2.0",
+]
+
+[tool.commitizen]
+name = "cz_conventional_commits"
+tag_format = "v$version"
+version_provider = "pep621"
+update_changelog_on_bump = true
+major_version_zero = true
+changelog_incremental = true
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+src = ["src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "W", "B", "UP", "SIM"]
+ignore = ["E501"]
+
+[tool.ruff.lint.per-file-ignores]
+"streamlit_app.py" = ["ALL"]
+"utils/*" = ["ALL"]
+
+[tool.ty.src]
+include = ["src"]

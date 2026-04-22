@@ -2,7 +2,7 @@ name: Run daily TM cron projects
 
 on:
   schedule:
-    - cron: "0 0 * * *" # Run every day at 0 UTC
+    - cron: "0 0 * * *"
   workflow_dispatch:
     inputs:
       raw_data_api_url:
@@ -15,7 +15,7 @@ on:
       projectHours:
         description: "Number of hours to fetch active projects (1-24)"
         required: false
-        default: "24" # Default value as a string
+        default: "24"
       tasking_manager_api_key:
         description: "Enter the TASKING MANAGER API KEY (leave blank if not applicable)"
         required: false
@@ -24,15 +24,16 @@ jobs:
   Run-Scheduled-Exports:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v2
+      - uses: actions/checkout@v4
 
-      - name: Set up Python 3.11
-        uses: actions/setup-python@v1
+      - name: Install uv
+        uses: astral-sh/setup-uv@v7
         with:
-          python-version: "3.11"
+          enable-cache: true
+          cache-dependency-glob: "uv.lock"
 
-      - name: Install dependencies
-        run: pip install -r requirements.txt
+      - name: Install project
+        run: uv sync --no-group dev
 
       - name: Determine project hours
         id: project_hours
@@ -41,15 +42,15 @@ jobs:
         run: |
           if [ "$GITHUB_EVENT_NAME" = "schedule" ] || [ -z "$MANUAL_INPUT" ] || ! [[ "$MANUAL_INPUT" =~ ^[0-9]+$ ]] || [ "$MANUAL_INPUT" -le 0 ] || [ "$MANUAL_INPUT" -gt 24 ]; then
             echo "Using default value: 24"
-            echo "::set-output name=value::24"
+            echo "value=24" >> "$GITHUB_OUTPUT"
           else
             echo "Using manual input: $MANUAL_INPUT"
-            echo "::set-output name=value::$MANUAL_INPUT"
+            echo "value=$MANUAL_INPUT" >> "$GITHUB_OUTPUT"
           fi
 
       - name: Shoot daily projects
-        run: python tm_extractor.py --fetch-active-projects ${{ steps.project_hours.outputs.value }}
+        run: uv run tm-extractor --fetch-active-projects ${{ steps.project_hours.outputs.value }}
         env:
           RAW_DATA_API_BASE_URL: ${{ github.event.inputs.raw_data_api_url || 'https://api-prod.raw-data.hotosm.org/v1' }}
           RAWDATA_API_AUTH_TOKEN: ${{ github.event.inputs.raw_data_api_auth_token || secrets.RAWDATA_API_AUTH_TOKEN }}
-          TASKING_MANAGER_API_KEY: ${{ github.event.inputs.tasking_manager_api_key || secrets.TASKING_MANAGER_API_KEY  }}
+          TASKING_MANAGER_API_KEY: ${{ github.event.inputs.tasking_manager_api_key || secrets.TASKING_MANAGER_API_KEY }}
